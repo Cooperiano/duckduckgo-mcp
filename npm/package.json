@@ -1,0 +1,34 @@
+{
+  "name": "@cooperiano/darkdark-search",
+  "version": "1.0.0",
+  "description": "Free web search MCP server using DuckDuckGo",
+  "main": "index.js",
+  "bin": {
+    "darkdark-search": "./bin/darkdark-search"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "keywords": [
+    "mcp",
+    "search",
+    "duckduckgo",
+    "web-search",
+    "claude"
+  ],
+  "author": "Cooperiano",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Cooperiano/darkdark.git"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "bin/",
+    "index.js",
+    "install.js",
+    "README.md"
+  ]
+}
