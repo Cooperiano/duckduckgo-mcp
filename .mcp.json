@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "darkdark-search": {
-      "command": "/home/julian/projects/darkdark/darkdark-server",
+    "duckduckgo-mcp": {
+      "command": "/home/julian/projects/duckduckgo-mcp/dist/duckduckgo-mcp-linux-amd64",
       "args": []
     }
   }

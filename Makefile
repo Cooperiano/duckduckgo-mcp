@@ -1,17 +1,21 @@
-.PHONY: build build-all clean
+.PHONY: build build-all clean test
 
 # Build for current platform
 build:
-	go build -o darkdark-server .
+	go build -o duckduckgo-mcp .
 
 # Build for all platforms
 build-all:
-	GOOS=linux GOARCH=amd64 go build -o dist/darkdark-server-linux-amd64 .
-	GOOS=linux GOARCH=arm64 go build -o dist/darkdark-server-linux-arm64 .
-	GOOS=darwin GOARCH=amd64 go build -o dist/darkdark-server-darwin-amd64 .
-	GOOS=darwin GOARCH=arm64 go build -o dist/darkdark-server-darwin-arm64 .
-	GOOS=windows GOARCH=amd64 go build -o dist/darkdark-server-windows-amd64.exe .
+	mkdir -p dist
+	GOOS=linux GOARCH=amd64 go build -o dist/duckduckgo-mcp-linux-amd64 .
+	GOOS=linux GOARCH=arm64 go build -o dist/duckduckgo-mcp-linux-arm64 .
+	GOOS=darwin GOARCH=amd64 go build -o dist/duckduckgo-mcp-darwin-amd64 .
+	GOOS=darwin GOARCH=arm64 go build -o dist/duckduckgo-mcp-darwin-arm64 .
+	GOOS=windows GOARCH=amd64 go build -o dist/duckduckgo-mcp-windows-amd64.exe .
 
 clean:
 	rm -rf dist/
-	rm -f darkdark-server
+	rm -f duckduckgo-mcp
+
+test:
+	go test -v ./...

@@ -6,8 +6,8 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 
-const VERSION = '1.0.0';
-const BASE_URL = `https://github.com/Cooperiano/darkdark/releases/download/v${VERSION}`;
+const VERSION = '2.0.0';
+const BASE_URL = `https://github.com/Cooperiano/duckduckgo-mcp/releases/download/v${VERSION}`;
 
 function getPlatform() {
   const platform = os.platform();
@@ -48,12 +48,12 @@ function downloadFile(url, dest) {
 
 async function install() {
   const platform = getPlatform();
-  const binaryName = `darkdark-server-${platform}`;
+  const binaryName = `duckduckgo-mcp-${platform}`;
   const url = `${BASE_URL}/${binaryName}`;
   const destDir = path.join(__dirname, 'bin');
-  const destFile = path.join(destDir, 'darkdark-search');
+  const destFile = path.join(destDir, 'duckduckgo-mcp');
 
-  console.log(`Downloading darkdark-search for ${platform}...`);
+  console.log(`Downloading duckduckgo-mcp for ${platform}...`);
 
   // Create bin directory
   if (!fs.existsSync(destDir)) {

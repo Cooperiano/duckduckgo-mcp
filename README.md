@@ -1,46 +1,144 @@
-# DarkDark Search MCP Server
+# DuckDuckGo MCP Server
 
-A free web search MCP server using DuckDuckGo.
+A powerful web search MCP server using DuckDuckGo. No API key required.
 
 ## Features
 
-- Search the web using DuckDuckGo (no API key required)
-- MCP protocol support
-- HTTP server with SSE transport
+- **3 Powerful Tools** - Search, crawl, and research with AI-powered ranking
+- **Parallel Crawling** - Fetch multiple pages simultaneously
+- **Smart Ranking** - Research tool ranks results by relevance to your question
+- **News Search** - Filter results to news articles only
+- **No API Keys** - Works out of the box, no rate limits
+- **Cross-platform** - Linux, macOS, Windows
+
+## Tools
+
+### 1. `search`
+
+Quick web search. Returns titles, URLs, and snippets.
+
+```json
+{
+  "name": "search",
+  "arguments": {
+    "query": "latest AI news 2026",
+    "limit": 10
+  }
+}
+```
+
+**Parameters:**
+| Parameter | Type | Default | Max | Description |
+|-----------|------|---------|-----|-------------|
+| `query` | string | required | - | Search query |
+| `limit` | number | 10 | 20 | Number of results |
+| `news` | string | - | - | Set to "true" for news only |
+
+---
+
+### 2. `search_and_crawl`
+
+Search + crawl all result pages in parallel. Get full content from each source.
+
+```json
+{
+  "name": "search_and_crawl",
+  "arguments": {
+    "query": "best JavaScript frameworks 2026",
+    "count": 5,
+    "maxContentLength": 3000
+  }
+}
+```
+
+**Parameters:**
+| Parameter | Type | Default | Max | Description |
+|-----------|------|---------|-----|-------------|
+| `query` | string | required | - | Search query |
+| `count` | number | 5 | 10 | Number of results to crawl |
+| `maxContentLength` | number | 3000 | 10000 | Max characters per page |
+
+---
+
+### 3. `research`
+
+Best for answering questions. Searches, crawls in parallel, then **ranks results by relevance** using:
+
+| Scoring Factor | Weight | Description |
+|----------------|--------|-------------|
+| **Keywords** | 30% | How many question keywords appear in content |
+| **Content Quality** | 25% | Length, structure, no paywalls |
+| **Source Authority** | 20% | Domain reputation (Wikipedia=10, Reuters=9, etc.) |
+| **Relevance** | 25% | Question type matching (how-to, what, why, etc.) |
+
+```json
+{
+  "name": "research",
+  "arguments": {
+    "question": "How does Starlink help Ukraine in the war?",
+    "count": 5,
+    "maxContentLength": 3000
+  }
+}
+```
 
 ## Usage
 
 ### Build
 
 ```bash
-cd /home/julian/projects/darkdark
-go build -o darkdark-server .
+go build -o duckduckgo-mcp .
 ```
 
 ### Run
 
 ```bash
-./darkdark-server
-# Server starts on port 8080
+./duckduckgo-mcp
 ```
 
 ### MCP Configuration
 
-Add to your project's `.mcp.json`:
+Add to your Claude Code `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "darkdark-search": {
-      "command": "/home/julian/projects/darkdark/darkdark-server",
+    "duckduckgo-mcp": {
+      "command": "/path/to/duckduckgo-mcp",
       "args": []
     }
   }
 }
 ```
 
-### MCP Tools
+## Domain Authority Scores
 
-- `search_web` - Search the web
-  - `query` (required): Search query
-  - `limit` (optional): Maximum results (default: 10)
+High-authority domains get better rankings in research:
+
+| Domain | Score |
+|--------|-------|
+| Wikipedia | 10 |
+| Reuters, AP News, BBC | 9 |
+| NYT, WSJ, Bloomberg | 8 |
+| .gov sites | 8 |
+| .edu sites | 7 |
+| Stack Overflow | 7 |
+| MDN, W3C | 8 |
+| TechCrunch, Wired, Ars | 6 |
+| Medium | 4 |
+| Reddit | 3 |
+
+## Comparison with Alternatives
+
+| Feature | DuckDuckGo MCP | Tavily | Google Search API |
+|---------|---------------|--------|-------------------|
+| **Free** | Yes | No | No |
+| **API Key** | Not needed | Required | Required |
+| **Rate Limits** | None | Yes | Yes |
+| **CAPTCHA Issues** | No | No | Yes |
+| **Parallel Crawl** | Yes | Yes | No |
+| **Result Ranking** | Yes | Yes | No |
+
+## License
+
+MIT
