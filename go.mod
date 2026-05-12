@@ -1,6 +1,8 @@
-module darkdark
+module cooperiano/duckduckgo-mcp
 
 go 1.23
+
+toolchain go1.23.0
 
 require github.com/mark3labs/mcp-go v0.18.0
 
