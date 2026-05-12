@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "darkdark-search": {
+      "command": "/home/julian/projects/darkdark/darkdark-server",
+      "args": []
+    }
+  }
+}
