@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -121,11 +122,81 @@ type ResearchResult struct {
 
 // Search options
 type SearchOptions struct {
-	Query    string
-	Limit    int
-	NewsOnly bool
-	Region   string
-	Time     string
+	Query      string
+	Limit      int
+	NewsOnly   bool
+	Region     string
+	Time       string
+	SafeSearch string // "off", "moderate" (default), "strict"
+	SearchType string // "text" (default), "news", "image"
+}
+
+// Instant Answer from DDG API
+type InstantAnswer struct {
+	Heading     string
+	Abstract    string
+	AbstractURL string
+	Answer      string
+	AnswerType  string
+	Type        string // A=article, D=disambiguation, E=exclusive
+}
+
+// Fetch Instant Answer from DDG API
+func fetchInstantAnswer(query string) *InstantAnswer {
+	apiURL := fmt.Sprintf("https://api.duckduckgo.com/?q=%s&format=json&no_html=1&skip_disambig=1",
+		url.QueryEscape(query))
+
+	client := newHTTPClient(5 * time.Second)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Heading     string `json:"Heading"`
+		Abstract    string `json:"Abstract"`
+		AbstractURL string `json:"AbstractURL"`
+		Answer      string `json:"Answer"`
+		AnswerType  string `json:"AnswerType"`
+		Type        string `json:"Type"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+
+	// Only return if there's actual content
+	if result.Heading == "" && result.Abstract == "" && result.Answer == "" {
+		return nil
+	}
+
+	return &InstantAnswer{
+		Heading:     result.Heading,
+		Abstract:    result.Abstract,
+		AbstractURL: result.AbstractURL,
+		Answer:      result.Answer,
+		AnswerType:  result.AnswerType,
+		Type:        result.Type,
+	}
+}
+
+// Create HTTP client with proxy support
+func newHTTPClient(timeout time.Duration) *http.Client {
+	client := &http.Client{Timeout: timeout}
+	proxyURL := getProxyURL()
+	if proxyURL != nil {
+		client.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+	}
+	return client
 }
 
 // Search web using DuckDuckGo HTML
@@ -135,9 +206,11 @@ func searchWeb(opts SearchOptions) ([]SearchResult, error) {
 
 	searchURL := fmt.Sprintf("%s?q=%s", baseURL, query)
 
-	// Add news filter if requested
-	if opts.NewsOnly {
+	// Search type filter
+	if opts.SearchType == "news" || opts.NewsOnly {
 		searchURL += "&iar=news"
+	} else if opts.SearchType == "image" {
+		searchURL += "&iar=images"
 	}
 
 	// Add region filter
@@ -150,17 +223,17 @@ func searchWeb(opts SearchOptions) ([]SearchResult, error) {
 		searchURL += "&df=" + opts.Time
 	}
 
-	// Create HTTP client with proxy support
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	// Check for proxy environment variables
-	proxyURL := getProxyURL()
-	if proxyURL != nil {
-		client.Transport = &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-		}
-		log.Printf("Using proxy: %s", proxyURL.String())
+	// Add safe search
+	// DDG HTML uses kp parameter: -2=off, 1=moderate, 2=strict
+	switch opts.SafeSearch {
+	case "off":
+		searchURL += "&kp=-2"
+	case "strict":
+		searchURL += "&kp=2"
+	// default is moderate (no param = DDG default)
 	}
+
+	client := newHTTPClient(30 * time.Second)
 
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
@@ -190,14 +263,7 @@ func searchWeb(opts SearchOptions) ([]SearchResult, error) {
 
 // Crawl a single page and extract main content
 func crawlPage(pageURL string, maxLength int) (string, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
-
-	proxyURL := getProxyURL()
-	if proxyURL != nil {
-		client.Transport = &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-		}
-	}
+	client := newHTTPClient(15 * time.Second)
 
 	req, err := http.NewRequest("GET", pageURL, nil)
 	if err != nil {
@@ -372,12 +438,13 @@ func calculateRelevanceScore(question, content string) float64 {
 }
 
 // Research with AI-powered ranking
-func research(question string, count int, maxContentLength int, region string, timeFilter string) ([]ResearchResult, error) {
+func research(question string, count int, maxContentLength int, region string, timeFilter string, safeSearch string) ([]ResearchResult, error) {
 	opts := SearchOptions{
-		Query:  question,
-		Limit:  count,
-		Region: region,
-		Time:   timeFilter,
+		Query:      question,
+		Limit:      count,
+		Region:     region,
+		Time:       timeFilter,
+		SafeSearch: safeSearch,
 	}
 
 	crawled, err := searchAndCrawl(opts, maxContentLength)
@@ -501,11 +568,11 @@ func cleanHTML(s string) string {
 }
 
 func main() {
-	s := server.NewMCPServer("duckduckgo-search", "3.0.0")
+	s := server.NewMCPServer("duckduckgo-search", "3.1.0")
 
 	// Tool 1: search - Basic web search
 	searchTool := mcp.NewTool("search",
-		mcp.WithDescription("Search the web using DuckDuckGo. Returns titles, URLs, and snippets."),
+		mcp.WithDescription("Search the web using DuckDuckGo. Returns titles, URLs, and snippets. Includes Instant Answer for definition/encyclopedia queries (Wikipedia abstracts, etc.)."),
 		mcp.WithString("query",
 			mcp.Required(),
 			mcp.Description("Search query"),
@@ -513,14 +580,20 @@ func main() {
 		mcp.WithNumber("limit",
 			mcp.Description("Maximum number of results (default: 10, max: 20)"),
 		),
-		mcp.WithString("news",
-			mcp.Description("Set to 'true' to search news only"),
+		mcp.WithString("type",
+			mcp.Description("Search type: 'text' (default), 'news', 'image'. Note: 'image' may return limited results via DDG HTML endpoint."),
 		),
 		mcp.WithString("region",
 			mcp.Description("Region/locale code for localized results (default: 'cn-zh' for China). Use 'us-en' for US, 'jp-jp' for Japan, '' (empty) for global."),
 		),
 		mcp.WithString("time",
 			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
+		),
+		mcp.WithString("safe",
+			mcp.Description("Safe search: 'off', 'moderate' (default), 'strict'."),
+		),
+		mcp.WithBoolean("instant_answer",
+			mcp.Description("Fetch Instant Answer from DDG API for definition/encyclopedia queries (default: true). Shows Wikipedia abstract etc. if available."),
 		),
 	)
 
@@ -534,9 +607,9 @@ func main() {
 			limit = 20
 		}
 
-		newsOnly := false
-		if newsStr, ok := request.Params.Arguments["news"].(string); ok && newsStr == "true" {
-			newsOnly = true
+		searchType := "text"
+		if t, ok := request.Params.Arguments["type"].(string); ok {
+			searchType = t
 		}
 
 		region := "cn-zh" // default to China
@@ -547,13 +620,28 @@ func main() {
 		if t, ok := request.Params.Arguments["time"].(string); ok {
 			timeFilter = t
 		}
+		safeSearch := "moderate"
+		if s, ok := request.Params.Arguments["safe"].(string); ok {
+			safeSearch = s
+		}
+		fetchIA := true
+		if ia, ok := request.Params.Arguments["instant_answer"].(bool); ok {
+			fetchIA = ia
+		}
+
+		// Fetch Instant Answer in parallel with search
+		var ia *InstantAnswer
+		if fetchIA {
+			ia = fetchInstantAnswer(query)
+		}
 
 		opts := SearchOptions{
-			Query:    query,
-			Limit:    limit,
-			NewsOnly: newsOnly,
-			Region:   region,
-			Time:     timeFilter,
+			Query:      query,
+			Limit:      limit,
+			Region:     region,
+			Time:       timeFilter,
+			SafeSearch: safeSearch,
+			SearchType: searchType,
 		}
 
 		results, err := searchWeb(opts)
@@ -562,7 +650,21 @@ func main() {
 		}
 
 		var output strings.Builder
-		output.WriteString(fmt.Sprintf("## Found %d results\n\n", len(results)))
+
+		// Show Instant Answer at top if available
+		if ia != nil {
+			if ia.Answer != "" {
+				output.WriteString(fmt.Sprintf("## 💡 Answer\n%s\n\n", ia.Answer))
+			} else if ia.Abstract != "" {
+				output.WriteString(fmt.Sprintf("## %s\n\n", ia.Heading))
+				output.WriteString(fmt.Sprintf("%s\n\n", ia.Abstract))
+				if ia.AbstractURL != "" {
+					output.WriteString(fmt.Sprintf("**Source:** %s\n\n", ia.AbstractURL))
+				}
+			}
+		}
+
+		output.WriteString(fmt.Sprintf("## Search Results (%d found)\n\n", len(results)))
 		for i, r := range results {
 			output.WriteString(fmt.Sprintf("**%d. [%s](%s)**\n", i+1, r.Title, r.URL))
 			output.WriteString(fmt.Sprintf("> %s\n\n", r.Snippet))
@@ -584,11 +686,17 @@ func main() {
 		mcp.WithNumber("maxContentLength",
 			mcp.Description("Maximum characters per page (default: 3000, max: 10000)"),
 		),
+		mcp.WithString("type",
+			mcp.Description("Search type: 'text' (default), 'news', 'image'."),
+		),
 		mcp.WithString("region",
 			mcp.Description("Region/locale code for localized results (default: 'cn-zh' for China). Use 'us-en' for US, 'jp-jp' for Japan, '' (empty) for global."),
 		),
 		mcp.WithString("time",
 			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
+		),
+		mcp.WithString("safe",
+			mcp.Description("Safe search: 'off', 'moderate' (default), 'strict'."),
 		),
 	)
 
@@ -610,6 +718,10 @@ func main() {
 			maxLength = 10000
 		}
 
+		searchType := "text"
+		if t, ok := request.Params.Arguments["type"].(string); ok {
+			searchType = t
+		}
 		region := "cn-zh" // default to China
 		if r, ok := request.Params.Arguments["region"].(string); ok {
 			region = r
@@ -618,12 +730,18 @@ func main() {
 		if t, ok := request.Params.Arguments["time"].(string); ok {
 			timeFilter = t
 		}
+		safeSearch := "moderate"
+		if s, ok := request.Params.Arguments["safe"].(string); ok {
+			safeSearch = s
+		}
 
 		opts := SearchOptions{
-			Query:  query,
-			Limit:  count,
-			Region: region,
-			Time:   timeFilter,
+			Query:      query,
+			Limit:      count,
+			Region:     region,
+			Time:       timeFilter,
+			SafeSearch: safeSearch,
+			SearchType: searchType,
 		}
 
 		results, err := searchAndCrawl(opts, maxLength)
@@ -646,7 +764,7 @@ func main() {
 
 	// Tool 3: research - Search, crawl, and rank by relevance
 	researchTool := mcp.NewTool("research",
-		mcp.WithDescription("Research a question by searching, crawling, and ranking results by relevance using AI-powered scoring."),
+		mcp.WithDescription("Research a question by searching, crawling, and ranking results by relevance using AI-powered scoring. Includes Instant Answer (Wikipedia abstracts, definitions, etc.) at the top when available."),
 		mcp.WithString("question",
 			mcp.Required(),
 			mcp.Description("Research question"),
@@ -662,6 +780,12 @@ func main() {
 		),
 		mcp.WithString("time",
 			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
+		),
+		mcp.WithString("safe",
+			mcp.Description("Safe search: 'off', 'moderate' (default), 'strict'."),
+		),
+		mcp.WithBoolean("instant_answer",
+			mcp.Description("Fetch Instant Answer from DDG API (default: true)."),
 		),
 	)
 
@@ -691,15 +815,43 @@ func main() {
 		if t, ok := request.Params.Arguments["time"].(string); ok {
 			timeFilter = t
 		}
+		safeSearch := "moderate"
+		if s, ok := request.Params.Arguments["safe"].(string); ok {
+			safeSearch = s
+		}
+		fetchIA := true
+		if ia, ok := request.Params.Arguments["instant_answer"].(bool); ok {
+			fetchIA = ia
+		}
 
-		results, err := research(question, count, maxLength, region, timeFilter)
+		// Fetch Instant Answer
+		var ia *InstantAnswer
+		if fetchIA {
+			ia = fetchInstantAnswer(question)
+		}
+
+		results, err := research(question, count, maxLength, region, timeFilter, safeSearch)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Research failed: %v", err)), nil
 		}
 
 		var output strings.Builder
 		output.WriteString(fmt.Sprintf("# Research Results for: %s\n\n", question))
-		output.WriteString(fmt.Sprintf("Analyzed %d sources, ranked by relevance:\n\n", len(results)))
+
+		// Show Instant Answer at top if available
+		if ia != nil {
+			if ia.Answer != "" {
+				output.WriteString(fmt.Sprintf("## 💡 Answer\n%s\n\n", ia.Answer))
+			} else if ia.Abstract != "" {
+				output.WriteString(fmt.Sprintf("## %s (Instant Answer)\n\n", ia.Heading))
+				output.WriteString(fmt.Sprintf("%s\n\n", ia.Abstract))
+				if ia.AbstractURL != "" {
+					output.WriteString(fmt.Sprintf("**Source:** %s\n\n", ia.AbstractURL))
+				}
+			}
+		}
+
+		output.WriteString(fmt.Sprintf("## Analyzed %d sources, ranked by relevance:\n\n", len(results)))
 
 		for i, r := range results {
 			output.WriteString(fmt.Sprintf("## %d. %s - Score: %.1f/10\n", i+1, r.Title, r.Score))
@@ -751,7 +903,7 @@ func main() {
 
 	// Start stdio server
 	stdioServer := server.NewStdioServer(s)
-	log.Println("DuckDuckGo Search MCP server v3.0.0 starting on stdio")
+	log.Println("DuckDuckGo Search MCP server v3.1.0 starting on stdio")
 	log.Println("Tools available: search, search_and_crawl, research, fetch")
 	if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("Server error: %v", err)
