@@ -6,7 +6,7 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 
-const VERSION = '2.0.0';
+const VERSION = '3.1.0';
 const BASE_URL = `https://github.com/Cooperiano/duckduckgo-mcp/releases/download/v${VERSION}`;
 
 function getPlatform() {

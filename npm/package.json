@@ -1,7 +1,7 @@
 {
   "name": "mcp-duckduckgo",
-  "version": "2.0.0",
-  "description": "Free web search MCP server using DuckDuckGo with crawl and research features",
+  "version": "3.1.0",
+  "description": "Free web search MCP server using DuckDuckGo — search, crawl, research, fetch, region/time/safe filters, Instant Answer, proxy auto-detect",
   "main": "index.js",
   "bin": {
     "duckduckgo-mcp": "./bin/duckduckgo-mcp.js"
