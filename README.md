@@ -82,6 +82,29 @@ Best for answering questions. Searches, crawls in parallel, then **ranks results
 }
 ```
 
+## Installation
+
+### NPM (Recommended)
+
+```bash
+npm install -g mcp-duckduckgo
+```
+
+Then add to your `~/.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "duckduckgo-mcp": {
+      "command": "npx",
+      "args": ["-y", "mcp-duckduckgo"]
+    }
+  }
+}
+```
+
+### From Source
+
 ## Usage
 
 ### Build

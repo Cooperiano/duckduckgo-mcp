@@ -16,6 +16,17 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+
+// Pre-compiled regexes for content extraction
+var (
+	reScript = regexp.MustCompile(`(?s)<script[^>]*>.*?</script>`)
+	reStyle  = regexp.MustCompile(`(?s)<style[^>]*>.*?</style>`)
+	reNav    = regexp.MustCompile(`(?s)<nav[^>]*>.*?</nav>`)
+	reFooter = regexp.MustCompile(`(?s)<footer[^>]*>.*?</footer>`)
+	reHeader = regexp.MustCompile(`(?s)<header[^>]*>.*?</header>`)
+	reAside  = regexp.MustCompile(`(?s)<aside[^>]*>.*?</aside>`)
+)
+
 // Domain authority scores for research ranking
 var domainAuthority = map[string]float64{
 	"wikipedia.org":         10.0,
@@ -40,6 +51,22 @@ var domainAuthority = map[string]float64{
 	"w3.org":                8.0,
 }
 
+// testProxyConnectivity verifies an HTTP proxy actually routes traffic
+func testProxyConnectivity(proxyURL *url.URL) bool {
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+		Timeout: 3 * time.Second,
+	}
+	resp, err := client.Get("http://httpbin.org/ip")
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
 // Get proxy URL from environment variables, with fallback to common proxy ports
 func getProxyURL() *url.URL {
 	// Check environment variables first
@@ -51,14 +78,17 @@ func getProxyURL() *url.URL {
 		}
 	}
 
-	// Fallback: try common proxy ports
-	commonPorts := []string{"7890", "7891", "7892", "1080", "1087"}
+	// Fallback: try common proxy ports (test actual HTTP proxy connectivity)
+	commonPorts := []string{"7892", "7890", "7891", "1080", "1087"}
 	for _, port := range commonPorts {
-		// Try localhost
-		testURL := fmt.Sprintf("http://127.0.0.1:%s", port)
-		if u, err := url.Parse(testURL); err == nil {
-			log.Printf("Auto-detected proxy: %s", testURL)
-			return u
+		addr := fmt.Sprintf("127.0.0.1:%s", port)
+		proxyURL, err := url.Parse(fmt.Sprintf("http://%s", addr))
+		if err != nil {
+			continue
+		}
+		if testProxyConnectivity(proxyURL) {
+			log.Printf("Auto-detected proxy: %s", proxyURL.String())
+			return proxyURL
 		}
 	}
 
@@ -206,9 +236,13 @@ func crawlPage(pageURL string, maxLength int) (string, error) {
 
 // Extract main content from HTML (remove nav, ads, etc)
 func extractMainContent(html string) string {
-	// Remove script and style tags
-	scriptRe := regexp.MustCompile(`(?s)<(script|style|nav|footer|header|aside)[^>]*>.*?</\1>`)
-	html = scriptRe.ReplaceAllString(html, "")
+	// Remove non-content elements
+	html = reScript.ReplaceAllString(html, "")
+	html = reStyle.ReplaceAllString(html, "")
+	html = reNav.ReplaceAllString(html, "")
+	html = reFooter.ReplaceAllString(html, "")
+	html = reHeader.ReplaceAllString(html, "")
+	html = reAside.ReplaceAllString(html, "")
 
 	// Remove common ad/class patterns
 	adRe := regexp.MustCompile(`(?s)<[^>]*(class|id)="[^"]*(ad|advertisement|sidebar|navigation|menu|footer|header)[^"]*"[^>]*>.*?</[^>]+>`)
@@ -338,10 +372,12 @@ func calculateRelevanceScore(question, content string) float64 {
 }
 
 // Research with AI-powered ranking
-func research(question string, count int, maxContentLength int) ([]ResearchResult, error) {
+func research(question string, count int, maxContentLength int, region string, timeFilter string) ([]ResearchResult, error) {
 	opts := SearchOptions{
-		Query: question,
-		Limit: count,
+		Query:  question,
+		Limit:  count,
+		Region: region,
+		Time:   timeFilter,
 	}
 
 	crawled, err := searchAndCrawl(opts, maxContentLength)
@@ -465,7 +501,7 @@ func cleanHTML(s string) string {
 }
 
 func main() {
-	s := server.NewMCPServer("duckduckgo-search", "2.0.0")
+	s := server.NewMCPServer("duckduckgo-search", "3.0.0")
 
 	// Tool 1: search - Basic web search
 	searchTool := mcp.NewTool("search",
@@ -479,6 +515,12 @@ func main() {
 		),
 		mcp.WithString("news",
 			mcp.Description("Set to 'true' to search news only"),
+		),
+		mcp.WithString("region",
+			mcp.Description("Region/locale code for localized results (default: 'cn-zh' for China). Use 'us-en' for US, 'jp-jp' for Japan, '' (empty) for global."),
+		),
+		mcp.WithString("time",
+			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
 		),
 	)
 
@@ -497,10 +539,21 @@ func main() {
 			newsOnly = true
 		}
 
+		region := "cn-zh" // default to China
+		if r, ok := request.Params.Arguments["region"].(string); ok {
+			region = r
+		}
+		timeFilter := ""
+		if t, ok := request.Params.Arguments["time"].(string); ok {
+			timeFilter = t
+		}
+
 		opts := SearchOptions{
 			Query:    query,
 			Limit:    limit,
 			NewsOnly: newsOnly,
+			Region:   region,
+			Time:     timeFilter,
 		}
 
 		results, err := searchWeb(opts)
@@ -531,6 +584,12 @@ func main() {
 		mcp.WithNumber("maxContentLength",
 			mcp.Description("Maximum characters per page (default: 3000, max: 10000)"),
 		),
+		mcp.WithString("region",
+			mcp.Description("Region/locale code for localized results (default: 'cn-zh' for China). Use 'us-en' for US, 'jp-jp' for Japan, '' (empty) for global."),
+		),
+		mcp.WithString("time",
+			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
+		),
 	)
 
 	s.AddTool(crawlTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -551,9 +610,20 @@ func main() {
 			maxLength = 10000
 		}
 
+		region := "cn-zh" // default to China
+		if r, ok := request.Params.Arguments["region"].(string); ok {
+			region = r
+		}
+		timeFilter := ""
+		if t, ok := request.Params.Arguments["time"].(string); ok {
+			timeFilter = t
+		}
+
 		opts := SearchOptions{
-			Query: query,
-			Limit: count,
+			Query:  query,
+			Limit:  count,
+			Region: region,
+			Time:   timeFilter,
 		}
 
 		results, err := searchAndCrawl(opts, maxLength)
@@ -587,6 +657,12 @@ func main() {
 		mcp.WithNumber("maxContentLength",
 			mcp.Description("Maximum characters per page (default: 3000, max: 10000)"),
 		),
+		mcp.WithString("region",
+			mcp.Description("Region/locale code for localized results (default: 'cn-zh' for China). Use 'us-en' for US, 'jp-jp' for Japan, '' (empty) for global."),
+		),
+		mcp.WithString("time",
+			mcp.Description("Time filter: 'd' (day), 'w' (week), 'm' (month), 'y' (year). Empty for any time."),
+		),
 	)
 
 	s.AddTool(researchTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -607,7 +683,16 @@ func main() {
 			maxLength = 10000
 		}
 
-		results, err := research(question, count, maxLength)
+		region := "cn-zh"
+		if r, ok := request.Params.Arguments["region"].(string); ok {
+			region = r
+		}
+		timeFilter := ""
+		if t, ok := request.Params.Arguments["time"].(string); ok {
+			timeFilter = t
+		}
+
+		results, err := research(question, count, maxLength, region, timeFilter)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Research failed: %v", err)), nil
 		}
@@ -629,10 +714,45 @@ func main() {
 		return mcp.NewToolResultText(output.String()), nil
 	})
 
+	// Tool 4: fetch - Fetch and extract clean content from a single URL
+	fetchTool := mcp.NewTool("fetch",
+		mcp.WithDescription("Fetch and extract clean text content from a single URL. Strips navigation, ads, scripts, and other non-content elements. Useful for reading a specific page in depth."),
+		mcp.WithString("url",
+			mcp.Required(),
+			mcp.Description("URL to fetch and extract content from"),
+		),
+		mcp.WithNumber("maxContentLength",
+			mcp.Description("Maximum characters to return (default: 3000, max: 10000)"),
+		),
+	)
+
+	s.AddTool(fetchTool, func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		url := request.Params.Arguments["url"].(string)
+		maxLength := 3000
+		if ml, ok := request.Params.Arguments["maxContentLength"].(float64); ok {
+			maxLength = int(ml)
+		}
+		if maxLength > 10000 {
+			maxLength = 10000
+		}
+
+		content, err := crawlPage(url, maxLength)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("Fetch failed: %v", err)), nil
+		}
+
+		var output strings.Builder
+		output.WriteString(fmt.Sprintf("# Fetched: %s\n\n", url))
+		output.WriteString(fmt.Sprintf("**Word Count:** %d\n\n", len(strings.Fields(content))))
+		output.WriteString(content)
+
+		return mcp.NewToolResultText(output.String()), nil
+	})
+
 	// Start stdio server
 	stdioServer := server.NewStdioServer(s)
-	log.Println("DuckDuckGo Search MCP server v2.0.0 starting on stdio")
-	log.Println("Tools available: search, search_and_crawl, research")
+	log.Println("DuckDuckGo Search MCP server v3.0.0 starting on stdio")
+	log.Println("Tools available: search, search_and_crawl, research, fetch")
 	if err := stdioServer.Listen(context.Background(), os.Stdin, os.Stdout); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
